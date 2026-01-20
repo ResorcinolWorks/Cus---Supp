@@ -2,13 +2,18 @@
 
 import { useState } from 'react';
 import { useConversation } from '@elevenlabs/react';
+import { classifyPizza } from '../lib/pizzaClassifier';
 
 export default function VoiceSDKPage() {
   const [text, setText] = useState('');
   const [messages, setMessages] = useState([]);
   const [isCalling, setIsCalling] = useState(false);
 
-  /* ---------- TEXT AGENT ---------- */
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  /* ================= TEXT AGENT ================= */
   const textAgent = useConversation({
     onMessage: (msg) => {
       if (msg?.message) {
@@ -23,10 +28,10 @@ export default function VoiceSDKPage() {
     },
   });
 
-  /* ---------- VOICE AGENT ---------- */
+  /* ================= VOICE AGENT ================= */
   const voiceAgent = useConversation();
 
-  /* ---------- TEXT ---------- */
+  /* ================= SEND TEXT ================= */
   async function sendText() {
     if (!text.trim() || isCalling) return;
 
@@ -48,7 +53,7 @@ export default function VoiceSDKPage() {
     textAgent.sendUserMessage(userText);
   }
 
-  /* ---------- VOICE ---------- */
+  /* ================= CALL ================= */
   async function startCall() {
     setIsCalling(true);
     setMessages([]);
@@ -66,14 +71,53 @@ export default function VoiceSDKPage() {
     await voiceAgent.endSession();
   }
 
+  /* ================= IMAGE ANALYSIS ================= */
+  async function analyzeAndSend() {
+    if (!image || !preview) return;
+
+    setLoading(true);
+
+    const img = new Image();
+    img.src = preview;
+    await new Promise((res) => (img.onload = res));
+
+    const result = await classifyPizza(img);
+
+    const verdict =
+      result.label.toLowerCase().includes('over')
+        ? 'FAIL (Overcooked Pizza)'
+        : 'PASS (Normal Pizza)';
+
+    const formData = new FormData();
+    formData.append('image', image);
+    formData.append('verdict', verdict);
+
+    await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'agent',
+        text: `Thank you for sharing the image. Verdict: ${verdict}. Hamari quality team isse review kar rahi hai.`,
+      },
+    ]);
+
+    setImage(null);
+    setPreview(null);
+    setLoading(false);
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        {/* ================= CALL UI ================= */}
+        {/* ================= CALL SCREEN ================= */}
         {isCalling ? (
           <div style={styles.callScreen}>
             <div style={styles.callerName}>
-              Raman
+              Jay
               <div style={styles.subText}>Domino’s Pizza Support</div>
             </div>
 
@@ -108,6 +152,38 @@ export default function VoiceSDKPage() {
                   {m.text}
                 </div>
               ))}
+            </div>
+
+            {/* ================= IMAGE UPLOAD ================= */}
+            <div style={{ padding: 12 }}>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={loading}
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  setImage(file);
+                  setPreview(URL.createObjectURL(file));
+                }}
+              />
+
+              {preview && (
+                <>
+                  <img
+                    src={preview}
+                    alt="Pizza Preview"
+                    style={{ width: 180, marginTop: 8, borderRadius: 8 }}
+                  />
+                  <button
+                    style={{ marginTop: 8 }}
+                    onClick={analyzeAndSend}
+                    disabled={loading}
+                  >
+                    {loading ? 'Analyzing...' : 'Upload & Verify'}
+                  </button>
+                </>
+              )}
             </div>
 
             {/* ================= INPUT ================= */}
@@ -151,7 +227,6 @@ const styles = {
     overflow: 'hidden',
   },
 
-  /* ---------- HEADER ---------- */
   header: {
     padding: 16,
     borderBottom: '1px solid #eee',
@@ -170,7 +245,6 @@ const styles = {
     cursor: 'pointer',
   },
 
-  /* ---------- CHAT ---------- */
   chat: {
     flex: 1,
     padding: 16,
@@ -188,7 +262,6 @@ const styles = {
     fontSize: 14,
   },
 
-  /* ---------- INPUT ---------- */
   inputBar: {
     padding: 12,
     borderTop: '1px solid #eee',
@@ -212,7 +285,6 @@ const styles = {
     cursor: 'pointer',
   },
 
-  /* ---------- CALL SCREEN ---------- */
   callScreen: {
     flex: 1,
     background: '#e5e7eb',
